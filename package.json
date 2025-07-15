@@ -1,7 +1,8 @@
 {
   "name": "my-app",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/index.ts",
+    "build":"bun build ./src/index.ts --compile --outfile bun-linux-x64 --target=bun-linux-x64"
   },
   "dependencies": {
     "@hono/node-server": "^1.16.0",
