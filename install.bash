@@ -525,7 +525,7 @@ main() {
     echo "mysql -u admin -p -h $SERVER_IP -P 3306"
     echo ""
     echo "To decrypt credentials, run:"
-    echo "cat $CREDENTIALS_FILE | openssl enc -aes-256-cbc -d -a -pass pass:testing"
+    echo "cat $CREDENTIALS_FILE | openssl enc -aes-256-cbc -d -a -pass pass:$ENCRYPTION_KEY"
 }
 
 # Execute main function
