@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
-const PORT = 7723
+const PORT = process.env.AGENT_PORT ? parseInt(process.env.AGENT_PORT, 10) :7723;
 // The secret token for authentication. In a real application, use environment variables.
 const AGENT_TOKEN = process.env.AGENT_TOKEN || 'your-secret-agent-token';
 

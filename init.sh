@@ -288,10 +288,8 @@ EOF
     SERVER_NAME_SLUG=$(echo "$RESPONSE" | jq -r '.server_name_slug')
     
     if [ "$SERVER_NAME_SLUG" = "null" ] || [ -z "$SERVER_NAME_SLUG" ]; then
-        log_error "Failed to get server name slug from API response"
-        exit 1
+        log_error "Failed to get server name slug from API response, This is not a critical error, but you may want to check the API response."
     fi
-    
     echo "$SERVER_NAME_SLUG"
 }
 # Function to setup agent service
@@ -299,6 +297,7 @@ setup_agent() {
     log "Setting up agent service..."
 
     # Define agent binary URL and local path
+    
     local agent_url="https://github.com/bonheur15/mydbportal-agent/releases/download/v0.0.1/agent-linux-x64"
     local agent_dir="/opt/database-agent"
     local agent_binary_path="$agent_dir/agent"
@@ -334,7 +333,6 @@ Restart=always
 RestartSec=10
 
 # Pass necessary environment variables to the agent process
-# The agent binary must be coded to read these variables
 Environment="AGENT_PORT=$AGENT_PORT"
 Environment="AGENT_TOKEN=$AGENT_TOKEN"
 
