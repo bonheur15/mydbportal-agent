@@ -294,117 +294,70 @@ EOF
     
     echo "$SERVER_NAME_SLUG"
 }
-
 # Function to setup agent service
 setup_agent() {
     log "Setting up agent service..."
-    
+
+    # Define agent binary URL and local path
+    local agent_url="https://github.com/bonheur15/mydbportal-agent/releases/download/v0.0.1/agent-linux-x64"
+    local agent_dir="/opt/database-agent"
+    local agent_binary_path="$agent_dir/agent"
+
     # Create agent directory
-    mkdir -p /opt/database-agent
-    
-    # Create agent script
-    cat > /opt/database-agent/agent.py <<EOF
-#!/usr/bin/env python3
-import http.server
-import socketserver
-import json
-import os
-import subprocess
-from datetime import datetime
+    mkdir -p "$agent_dir"
 
-PORT = $AGENT_PORT
+    # Download the agent binary using curl
+    log "Downloading agent from $agent_url..."
+    if ! curl -L --fail -o "$agent_binary_path" "$agent_url"; then
+        log_error "Failed to download agent binary from $agent_url"
+        exit 1
+    fi
+    log "Agent downloaded successfully to $agent_binary_path"
 
-class AgentHandler(http.server.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/status':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            # Check database status
-            mysql_status = self.check_service_status('mysql')
-            postgres_status = self.check_service_status('postgresql')
-            mongodb_status = self.check_service_status('mongod')
-            
-            status = {
-                'status': 'running',
-                'timestamp': datetime.now().isoformat(),
-                'server_ip': self.get_server_ip(),
-                'databases': {
-                    'mysql': {
-                        'status': mysql_status,
-                        'port': 3306,
-                        'connection': f"{self.get_server_ip()}:3306"
-                    },
-                    'postgresql': {
-                        'status': postgres_status,
-                        'port': 5432,
-                        'connection': f"{self.get_server_ip()}:5432"
-                    },
-                    'mongodb': {
-                        'status': mongodb_status,
-                        'port': 27017,
-                        'connection': f"{self.get_server_ip()}:27017"
-                    }
-                }
-            }
-            
-            self.wfile.write(json.dumps(status, indent=2).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def check_service_status(self, service_name):
-        try:
-            result = subprocess.run(['systemctl', 'is-active', service_name], 
-                                    capture_output=True, text=True)
-            return 'running' if result.returncode == 0 else 'stopped'
-        except:
-            return 'unknown'
-    
-    def get_server_ip(self):
-        try:
-            result = subprocess.run(['curl', '-s', 'ifconfig.me'], 
-                                    capture_output=True, text=True, timeout=5)
-            return result.stdout.strip() if result.returncode == 0 else 'unknown'
-        except:
-            return 'unknown'
+    # Make the downloaded agent binary executable
+    chmod +x "$agent_binary_path"
 
-with socketserver.TCPServer(("", PORT), AgentHandler) as httpd:
-    print(f"Agent server running on port {PORT}")
-    httpd.serve_forever()
-EOF
-
-    # Make agent executable
-    chmod +x /opt/database-agent/agent.py
-    
-    # Create systemd service
+    # Create systemd service file to manage the agent
+    log "Creating systemd service for the agent..."
     cat > /etc/systemd/system/database-agent.service <<EOF
 [Unit]
-Description=Database Agent Service
+Description=MyDbPortal Agent Service
+Documentation=https://github.com/bonheur15/mydbportal-agent
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/database-agent
-ExecStart=/usr/bin/python3 /opt/database-agent/agent.py
+WorkingDirectory=$agent_dir
+ExecStart=$agent_binary_path
 Restart=always
 RestartSec=10
+
+# Pass necessary environment variables to the agent process
+# The agent binary must be coded to read these variables
+Environment="AGENT_PORT=$AGENT_PORT"
+Environment="AGENT_TOKEN=$AGENT_TOKEN"
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # Start and enable agent service
+    # Reload systemd, then start and enable the new service
+    log "Reloading systemd and starting agent service..."
     systemctl daemon-reload
     systemctl start database-agent
     systemctl enable database-agent
-    
-    log "Agent service configured and started"
-}
 
+    # Check if the service started successfully
+    if systemctl is-active --quiet database-agent; then
+        log "Agent service is active and running."
+    else
+        log_error "Agent service failed to start. Check status with 'journalctl -u database-agent'"
+        # Dump last few log lines for easier debugging
+        journalctl -u database-agent -n 20 --no-pager >> "$INSTALL_LOG"
+        exit 1
+    fi
+}
 # Function to encrypt and store credentials
 store_credentials() {
     log "Storing encrypted credentials..."

@@ -119,7 +119,7 @@ console.log(`Server is running on http://localhost:${PORT}`)
 
 serve({
   fetch: app.fetch,
-  port: PORT
+  port: PORT,
 })
 
 export default app
