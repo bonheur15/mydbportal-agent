@@ -245,7 +245,7 @@ install_mongodb() {
     log "MongoDB installed and configured successfully"
 }
 
-# Function to call API, send credentials, and get server slug
+# Function to call API and send credentials
 call_setup_api() {
     SERVER_IP=$(get_server_ip)
 
@@ -284,20 +284,19 @@ EOF
     
     log "API Response: $RESPONSE"
 
-    # Extract server name slug from response
-    SERVER_NAME_SLUG=$(echo "$RESPONSE" | jq -r '.server_name_slug')
-    
-    if [ "$SERVER_NAME_SLUG" = "null" ] || [ -z "$SERVER_NAME_SLUG" ]; then
-        log_error "Failed to get server name slug from API response, This is not a critical error, but you may want to check the API response."
+    # Check if the response contains an error field and log it.
+    if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
+        log_warning "API call returned an error. Please check the response in the log file above. The setup will continue."
+    else
+        log "API call reported success."
     fi
-    echo "$SERVER_NAME_SLUG"
 }
+
 # Function to setup agent service
 setup_agent() {
     log "Setting up agent service..."
 
     # Define agent binary URL and local path
-    
     local agent_url="https://github.com/bonheur15/mydbportal-agent/releases/download/v0.0.1/agent-linux-x64"
     local agent_dir="/opt/database-agent"
     local agent_binary_path="$agent_dir/agent"
@@ -356,13 +355,13 @@ EOF
         exit 1
     fi
 }
+
 # Function to encrypt and store credentials
 store_credentials() {
     log "Storing encrypted credentials..."
     
     # Add server information
     echo "SERVER_IP=$(get_server_ip)" >> temp_credentials.txt
-    echo "SERVER_NAME_SLUG=$SERVER_NAME_SLUG" >> temp_credentials.txt
     echo "SETUP_DATE=$(date)" >> temp_credentials.txt
     
     # Encrypt credentials
@@ -410,8 +409,8 @@ main() {
     install_mongodb
     log "Databases installed successfully"
     
-    # Call API to get server slug
-    SERVER_NAME_SLUG=$(call_setup_api)
+    # Call API to notify completion and send credentials
+    call_setup_api
     
     # Setup agent
     setup_agent
