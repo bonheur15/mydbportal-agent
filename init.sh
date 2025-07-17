@@ -194,10 +194,31 @@ install_mongodb() {
     apt-get install -y mongodb-org >> "$INSTALL_LOG" 2>&1
     
     # Start and enable MongoDB
+    log "Starting MongoDB service..."
     systemctl start mongod >> "$INSTALL_LOG" 2>&1
     systemctl enable mongod >> "$INSTALL_LOG" 2>&1
     
-    # Configure MongoDB authentication
+    # Wait for MongoDB service to be ready before proceeding
+    log "Waiting for MongoDB to initialize..."
+    for i in {1..30}; do
+        # Use mongosh to ping the server. &> /dev/null silences output.
+        if mongosh --eval "db.adminCommand('ping')" &> /dev/null; then
+            log "MongoDB service is active."
+            break
+        fi
+        log "Waiting... attempt $i of 30"
+        sleep 2
+    done
+
+    # Final check, if it's still not running, exit with an error
+    if ! mongosh --eval "db.adminCommand('ping')" &> /dev/null; then
+        log_error "MongoDB service failed to start. Check logs with 'journalctl -u mongod'"
+        journalctl -u mongod -n 50 --no-pager >> "$INSTALL_LOG"
+        exit 1
+    fi
+    
+    # Configure MongoDB authentication now that the service is confirmed running
+    log "Configuring MongoDB admin user..."
     mongosh --eval "
     use admin
     db.createUser({
@@ -207,13 +228,13 @@ install_mongodb() {
     })
     " >> "$INSTALL_LOG" 2>&1
     
-    # Enable authentication
-    sed -i 's/#security:/security:\n  authorization: enabled/' /etc/mongod.conf
-    
-    # Configure for remote access
+    # Enable authentication and configure for remote access
+    # This sed command finds the commented #security line and replaces it with an enabled block
+    sed -i '/#security:/a\security:\n  authorization: enabled' /etc/mongod.conf
     sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
     
-    # Restart MongoDB
+    # Restart MongoDB to apply security and network changes
+    log "Restarting MongoDB to apply new configuration..."
     systemctl restart mongod >> "$INSTALL_LOG" 2>&1
     
     # Store credentials
