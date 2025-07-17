@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Database Server Setup Script
-# This script installs MySQL, PostgreSQL, MongoDB, and Nginx with SSL configuration
-# Only the agent gets a domain - databases are accessible via direct IP:port
+# This script installs MySQL, PostgreSQL, and MongoDB.
+# Databases and the agent are accessible via direct IP:port.
 # Modify this on your own risk, and ensure you have backups of your data before running it.
 
 set -e  # Exit on any error
@@ -11,7 +11,6 @@ set -e  # Exit on any error
 ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d "=+/")
 CREDENTIALS_FILE="credentials"
 INSTALL_LOG="install.log"
-NGINX_LOG="nginx_setup.log"
 API_ENDPOINT="https://mydpportal.com/api/jobs/setup-server"
 AGENT_PORT="8273"
 
@@ -71,7 +70,7 @@ install_prerequisites() {
     # Update system
     apt-get update -y >> "$INSTALL_LOG" 2>&1
     
-    # Install required packages
+    # Install required packages (Nginx and Certbot removed)
     apt-get install -y \
         curl \
         wget \
@@ -82,8 +81,7 @@ install_prerequisites() {
         ca-certificates \
         openssl \
         jq \
-        certbot \
-        python3-certbot-nginx >> "$INSTALL_LOG" 2>&1
+        python3 >> "$INSTALL_LOG" 2>&1
     
     log "Prerequisites installed successfully"
 }
@@ -226,31 +224,11 @@ install_mongodb() {
     log "MongoDB installed and configured successfully"
 }
 
-# Function to install Nginx
-install_nginx() {
-    log "Installing Nginx..."
-    
-    # Install Nginx
-    apt-get install -y nginx >> "$INSTALL_LOG" 2>&1
-    
-    # Start and enable Nginx
-    systemctl start nginx >> "$INSTALL_LOG" 2>&1
-    systemctl enable nginx >> "$INSTALL_LOG" 2>&1
-    
-    # Remove default site
-    rm -f /etc/nginx/sites-enabled/default
-    
-    log "Nginx installed successfully"
-}
-
-# =================================================================
-# MODIFIED FUNCTION TO SEND CREDENTIALS
-# =================================================================
+# Function to call API, send credentials, and get server slug
 call_setup_api() {
     SERVER_IP=$(get_server_ip)
 
     # Construct the JSON payload with database credentials
-    # Using a heredoc for readability and to avoid quote escaping issues
     JSON_PAYLOAD=$(cat <<EOF
 {
   "server_ip": "$SERVER_IP",
@@ -294,67 +272,6 @@ EOF
     fi
     
     echo "$SERVER_NAME_SLUG"
-}
-
-# Function to configure Nginx with SSL (Agent only)
-configure_nginx_ssl() {
-    local server_slug="$1"
-    
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Configuring Nginx with SSL for agent..." >> "$NGINX_LOG"
-    
-    # Define agent domain only
-    AGENT_DOMAIN="agent-$server_slug.mydbportal.com"
-    
-    # Create Nginx configuration for agent only
-    cat > /etc/nginx/sites-available/agent <<EOF
-# Agent HTTP proxy
-server {
-    listen 80;
-    server_name $AGENT_DOMAIN;
-    
-    location / {
-        proxy_pass http://127.0.0.1:$AGENT_PORT;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-
-# Default server block to handle other requests
-server {
-    listen 80 default_server;
-    server_name _;
-    return 444;
-}
-EOF
-
-    # Enable site
-    ln -sf /etc/nginx/sites-available/agent /etc/nginx/sites-enabled/
-    
-    # Test Nginx configuration
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Testing Nginx configuration..." >> "$NGINX_LOG"
-    if nginx -t >> "$NGINX_LOG" 2>&1; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Nginx configuration test passed" >> "$NGINX_LOG"
-    else
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Nginx configuration test failed" >> "$NGINX_LOG"
-        log_error "Nginx configuration test failed. Check $NGINX_LOG for details."
-        exit 1
-    fi
-    
-    # Reload Nginx
-    systemctl reload nginx >> "$NGINX_LOG" 2>&1
-    
-    # Obtain SSL certificate for agent domain
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Obtaining SSL certificate for agent..." >> "$NGINX_LOG"
-    
-    certbot --nginx --non-interactive --agree-tos --email admin@mydbportal.com \
-        -d "$AGENT_DOMAIN" >> "$NGINX_LOG" 2>&1
-    
-    # Store domain information
-    echo "AGENT_DOMAIN=$AGENT_DOMAIN" >> temp_credentials.txt
-    
-    log "SSL certificate configured successfully for agent"
 }
 
 # Function to setup agent service
@@ -520,14 +437,9 @@ main() {
     install_postgresql
     install_mongodb
     log "Databases installed successfully"
-    # Install Nginx
-    install_nginx
     
     # Call API to get server slug
     SERVER_NAME_SLUG=$(call_setup_api)
-    
-    # Configure Nginx with SSL (agent only)
-    configure_nginx_ssl "$SERVER_NAME_SLUG"
     
     # Setup agent
     setup_agent
@@ -541,7 +453,6 @@ main() {
     log "Database server setup completed successfully!"
     log "Credentials stored in: $CREDENTIALS_FILE"
     log "Install log: $INSTALL_LOG"
-    log "Nginx log: $NGINX_LOG"
     log "Agent running on port: $AGENT_PORT"
     
     SERVER_IP=$(get_server_ip)
@@ -549,13 +460,13 @@ main() {
     echo ""
     echo "Setup Summary:"
     echo "=============="
-    echo "Server IP: $SERVER_IP"
-    echo "Agent Domain: agent-$SERVER_NAME_SLUG.mydbportal.com"
+    echo "Server IP:    $SERVER_IP"
+    echo "Agent URL:    http://$SERVER_IP:$AGENT_PORT"
     echo ""
     echo "Database Connections:"
-    echo "MySQL:       $SERVER_IP:3306"
-    echo "PostgreSQL:  $SERVER_IP:5432"
-    echo "MongoDB:     $SERVER_IP:27017"
+    echo "MySQL:        $SERVER_IP:3306"
+    echo "PostgreSQL:   $SERVER_IP:5432"
+    echo "MongoDB:      $SERVER_IP:27017"
     echo ""
     echo "Example MySQL connection:"
     echo "mysql -u admin -p -h $SERVER_IP -P 3306"
