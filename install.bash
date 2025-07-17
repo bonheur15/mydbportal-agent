@@ -15,6 +15,11 @@ NGINX_LOG="nginx_setup.log"
 API_ENDPOINT="https://mydpportal.com/api/jobs/setup-server"
 AGENT_PORT="8273"
 
+# Database credentials (will be generated during installation)
+MYSQL_ROOT_PASSWORD=""
+POSTGRES_PASSWORD=""
+MONGO_PASSWORD=""
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -238,19 +243,50 @@ install_nginx() {
     log "Nginx installed successfully"
 }
 
-# Function to call API and get server slug
-call_setup_api() {   
-
+# =================================================================
+# MODIFIED FUNCTION TO SEND CREDENTIALS
+# =================================================================
+call_setup_api() {
     SERVER_IP=$(get_server_ip)
-    
-    # Call API for demo now - this is a placeholder
-    RESPONSE=$(curl -s -X POST "https://$API_ENDPOINT" \
+
+    # Construct the JSON payload with database credentials
+    # Using a heredoc for readability and to avoid quote escaping issues
+    JSON_PAYLOAD=$(cat <<EOF
+{
+  "server_ip": "$SERVER_IP",
+  "agent_token": "$AGENT_TOKEN",
+  "credentials": {
+    "mysql": {
+      "user": "admin",
+      "password": "$MYSQL_ROOT_PASSWORD",
+      "port": 3306
+    },
+    "postgresql": {
+      "user": "admin",
+      "password": "$POSTGRES_PASSWORD",
+      "port": 5432
+    },
+    "mongodb": {
+      "user": "admin",
+      "password": "$MONGO_PASSWORD",
+      "port": 27017
+    }
+  }
+}
+EOF
+)
+
+    log "Sending setup data to API: $API_ENDPOINT"
+    log "Payload: $JSON_PAYLOAD"
+
+    RESPONSE=$(curl -s -X POST "$API_ENDPOINT" \
         -H "Content-Type: application/json" \
-        -d "{\"server_ip\": \"$SERVER_IP\"}")
+        -d "$JSON_PAYLOAD")
     
+    log "API Response: $RESPONSE"
+
     # Extract server name slug from response
     SERVER_NAME_SLUG=$(echo "$RESPONSE" | jq -r '.server_name_slug')
-    # SERVER_NAME_SLUG="demo-server"
     
     if [ "$SERVER_NAME_SLUG" = "null" ] || [ -z "$SERVER_NAME_SLUG" ]; then
         log_error "Failed to get server name slug from API response"
@@ -384,7 +420,7 @@ class AgentHandler(http.server.SimpleHTTPRequestHandler):
     def check_service_status(self, service_name):
         try:
             result = subprocess.run(['systemctl', 'is-active', service_name], 
-                                  capture_output=True, text=True)
+                                    capture_output=True, text=True)
             return 'running' if result.returncode == 0 else 'stopped'
         except:
             return 'unknown'
@@ -392,7 +428,7 @@ class AgentHandler(http.server.SimpleHTTPRequestHandler):
     def get_server_ip(self):
         try:
             result = subprocess.run(['curl', '-s', 'ifconfig.me'], 
-                                  capture_output=True, text=True, timeout=5)
+                                    capture_output=True, text=True, timeout=5)
             return result.stdout.strip() if result.returncode == 0 else 'unknown'
         except:
             return 'unknown'
@@ -517,9 +553,9 @@ main() {
     echo "Agent Domain: agent-$SERVER_NAME_SLUG.mydbportal.com"
     echo ""
     echo "Database Connections:"
-    echo "MySQL:      $SERVER_IP:3306"
-    echo "PostgreSQL: $SERVER_IP:5432"
-    echo "MongoDB:    $SERVER_IP:27017 (if enabled)"
+    echo "MySQL:       $SERVER_IP:3306"
+    echo "PostgreSQL:  $SERVER_IP:5432"
+    echo "MongoDB:     $SERVER_IP:27017"
     echo ""
     echo "Example MySQL connection:"
     echo "mysql -u admin -p -h $SERVER_IP -P 3306"
