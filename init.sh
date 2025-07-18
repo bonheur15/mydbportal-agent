@@ -11,7 +11,7 @@ set -e  # Exit on any error
 ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d "=+/")
 CREDENTIALS_FILE="credentials"
 INSTALL_LOG="install.log"
-API_ENDPOINT="https://mydpportal.com/api/jobs/setup-server"
+API_ENDPOINT="https://mydbportal.com/api/jobs/setup-server"
 AGENT_PORT="8273"
 
 # Database credentials (will be generated during installation)
